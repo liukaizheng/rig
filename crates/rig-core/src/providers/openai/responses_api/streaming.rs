@@ -1299,7 +1299,7 @@ pub enum ItemChunkKind {
     #[serde(rename = "response.reasoning_summary_text.delta")]
     ReasoningSummaryTextDelta(SummaryTextChunk),
     #[serde(rename = "response.reasoning_summary_text.done")]
-    ReasoningSummaryTextDone(SummaryTextChunk),
+    ReasoningSummaryTextDone(SummaryTextDone),
     #[serde(rename = "response.reasoning_text.delta")]
     ReasoningTextDelta(DeltaTextChunkWithItemId),
     /// Terminator for a raw-reasoning block, restating the text the
@@ -1462,6 +1462,13 @@ pub struct SummaryTextChunk {
     // the `.done` sibling carries the full `text` under the same shape.
     #[serde(alias = "text")]
     pub delta: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SummaryTextDone {
+    pub summary_index: u64,
+    pub sequence_number: u64,
+    pub text: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
