@@ -832,6 +832,9 @@ mod tests {
     };
     use crate::client::CompletionClient;
     use crate::completion::CompletionModel;
+    use crate::providers::openai::responses_api::streaming::{
+        ItemChunk, ItemChunkKind, ResponseChunkKind, SummaryTextChunk, SummaryTextDone,
+    };
     use crate::providers::openai::responses_api::{
         CompletionResponse, ResponseError, ResponseObject, ResponseStatus, ResponsesUsage,
     };
@@ -1032,6 +1035,103 @@ mod tests {
             .expect("output text delta event should not be skipped");
 
         assert!(matches!(event, ResponsesWebSocketEvent::Item(_)));
+    }
+
+    #[test]
+    fn parse_reasoning_summary_text_delta_event_preserves_delta() {
+        let payload = json!({
+            "type": "response.reasoning_summary_text.delta",
+            "item_id": "rs_summary_1",
+            "output_index": 0,
+            "sequence_number": 5,
+            "summary_index": 0,
+            "delta": "summary delta"
+        });
+
+        let event = parse_server_event(&payload.to_string())
+            .expect("reasoning summary text delta event should parse")
+            .expect("reasoning summary text delta event should not be skipped");
+
+        assert!(matches!(
+            event,
+            ResponsesWebSocketEvent::Item(ItemChunk {
+                item_id: Some(item_id),
+                output_index: 0,
+                data: ItemChunkKind::ReasoningSummaryTextDelta(SummaryTextChunk {
+                    summary_index: 0,
+                    sequence_number: 5,
+                    delta,
+                }),
+            }) if item_id == "rs_summary_1" && delta == "summary delta"
+        ));
+    }
+
+    #[test]
+    fn parse_reasoning_summary_text_done_event_preserves_text() {
+        let payload = json!({
+            "type": "response.reasoning_summary_text.done",
+            "item_id": "rs_summary_1",
+            "output_index": 0,
+            "sequence_number": 6,
+            "summary_index": 0,
+            "text": "summary complete"
+        });
+
+        let event = parse_server_event(&payload.to_string())
+            .expect("reasoning summary text done event should parse")
+            .expect("reasoning summary text done event should not be skipped");
+
+        assert!(matches!(
+            event,
+            ResponsesWebSocketEvent::Item(ItemChunk {
+                item_id: Some(item_id),
+                output_index: 0,
+                data: ItemChunkKind::ReasoningSummaryTextDone(SummaryTextDone {
+                    summary_index: 0,
+                    sequence_number: 6,
+                    text,
+                }),
+            }) if item_id == "rs_summary_1" && text == "summary complete"
+        ));
+    }
+
+    #[test]
+    fn parse_response_lifecycle_events_as_response_chunks() {
+        let events = [
+            ("response.created", ResponseStatus::InProgress),
+            ("response.in_progress", ResponseStatus::InProgress),
+            ("response.completed", ResponseStatus::Completed),
+            ("response.failed", ResponseStatus::Failed),
+            ("response.incomplete", ResponseStatus::Incomplete),
+        ];
+
+        for (kind, status) in events {
+            let payload = json!({
+                "type": kind,
+                "sequence_number": 12,
+                "response": sample_response(status),
+            });
+
+            let event = parse_server_event(&payload.to_string())
+                .expect("response lifecycle event should parse")
+                .expect("response lifecycle event should not be skipped");
+
+            let ResponsesWebSocketEvent::Response(chunk) = event else {
+                panic!("{kind} should parse as a response event");
+            };
+
+            assert!(matches!(
+                (kind, chunk.kind),
+                ("response.created", ResponseChunkKind::ResponseCreated)
+                    | (
+                        "response.in_progress",
+                        ResponseChunkKind::ResponseInProgress
+                    )
+                    | ("response.completed", ResponseChunkKind::ResponseCompleted)
+                    | ("response.failed", ResponseChunkKind::ResponseFailed)
+                    | ("response.incomplete", ResponseChunkKind::ResponseIncomplete)
+            ));
+        }
     }
 
     #[test]
